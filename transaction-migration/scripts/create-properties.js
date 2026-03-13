@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 
-const https = require("https");
+require("dotenv").config({ path: require("path").resolve(__dirname, "../.env") });
+const axios = require("axios");
 
 const HUBSPOT_ACCESS_TOKEN = process.env.HUBSPOT_ACCESS_TOKEN;
 if (!HUBSPOT_ACCESS_TOKEN) {
   console.error("Error: HUBSPOT_ACCESS_TOKEN environment variable is required");
   process.exit(1);
 }
+
+const hubspot = axios.create({
+  baseURL: "https://api.hubapi.com",
+  headers: { Authorization: `Bearer ${HUBSPOT_ACCESS_TOKEN}` },
+});
 
 const PROPERTY_DEFINITIONS = [
   {
@@ -83,36 +89,6 @@ const PROPERTY_DEFINITIONS = [
   },
 ];
 
-function request(method, path, body) {
-  return new Promise((resolve, reject) => {
-    const data = body ? JSON.stringify(body) : null;
-    const options = {
-      hostname: "api.hubapi.com",
-      path,
-      method,
-      headers: {
-        Authorization: `Bearer ${HUBSPOT_ACCESS_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-    };
-    if (data) {
-      options.headers["Content-Length"] = Buffer.byteLength(data);
-    }
-
-    const req = https.request(options, (res) => {
-      let responseBody = "";
-      res.on("data", (chunk) => (responseBody += chunk));
-      res.on("end", () => {
-        resolve({ statusCode: res.statusCode, body: responseBody });
-      });
-    });
-
-    req.on("error", reject);
-    if (data) req.write(data);
-    req.end();
-  });
-}
-
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -136,48 +112,40 @@ async function createProperty(objectType, definition) {
     }));
   }
 
-  const path = `/crm/v3/properties/${objectType}`;
-  const res = await request("POST", path, payload);
-
-  if (res.statusCode === 201) {
+  try {
+    await hubspot.post(`/crm/v3/properties/${objectType}`, payload);
     console.log(`  [CREATED] ${objectType}.${definition.name}`);
     return "created";
-  }
+  } catch (err) {
+    const status = err.response?.status;
+    const body = err.response?.data;
 
-  if (res.statusCode === 409) {
-    console.log(`  [SKIPPED] ${objectType}.${definition.name} — already exists`);
-    return "skipped";
-  }
+    if (status === 409) {
+      console.log(`  [SKIPPED] ${objectType}.${definition.name} — already exists`);
+      return "skipped";
+    }
 
-  if (res.statusCode === 429) {
-    const retryAfter = 10;
-    console.log(`  [RATE-LIMITED] Waiting ${retryAfter}s before retrying ${objectType}.${definition.name}...`);
-    await sleep(retryAfter * 1000);
-    return createProperty(objectType, definition);
-  }
+    if (
+      status === 400 &&
+      JSON.stringify(body).includes("already exists")
+    ) {
+      console.log(`  [SKIPPED] ${objectType}.${definition.name} — already exists`);
+      return "skipped";
+    }
 
-  let errorDetail;
-  try {
-    errorDetail = JSON.parse(res.body);
-  } catch {
-    errorDetail = res.body;
-  }
+    if (status === 429) {
+      const retryAfter = 10;
+      console.log(`  [RATE-LIMITED] Waiting ${retryAfter}s before retrying ${objectType}.${definition.name}...`);
+      await sleep(retryAfter * 1000);
+      return createProperty(objectType, definition);
+    }
 
-  // HubSpot sometimes returns 400 with "property already exists" message
-  if (
-    res.statusCode === 400 &&
-    typeof res.body === "string" &&
-    res.body.includes("already exists")
-  ) {
-    console.log(`  [SKIPPED] ${objectType}.${definition.name} — already exists`);
-    return "skipped";
+    console.error(
+      `  [ERROR] ${objectType}.${definition.name} — HTTP ${status}:`,
+      JSON.stringify(body, null, 2)
+    );
+    return "error";
   }
-
-  console.error(
-    `  [ERROR] ${objectType}.${definition.name} — HTTP ${res.statusCode}:`,
-    JSON.stringify(errorDetail, null, 2)
-  );
-  return "error";
 }
 
 async function main() {
@@ -189,7 +157,6 @@ async function main() {
     for (const objectType of definition.objectTypes) {
       const result = await createProperty(objectType, definition);
       summary[result]++;
-      // Small delay between requests to stay well under rate limits
       await sleep(100);
     }
   }
@@ -205,6 +172,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("Fatal error:", err);
+  console.error("Fatal error:", err.message);
   process.exit(1);
 });

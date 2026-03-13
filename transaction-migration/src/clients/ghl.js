@@ -15,19 +15,22 @@ function createGhlClient(apiToken) {
 
   async function listInvoices(locationId, params = {}) {
     const allInvoices = [];
-    let offset = 0;
     const limit = params.limit || 100;
+    let startAfterId = undefined;
+    let startAfter = undefined;
 
     while (true) {
-      const { data } = await client.get("/invoices", {
-        params: {
-          altId: locationId,
-          altType: "location",
-          limit,
-          offset,
-          ...params,
-        },
-      });
+      const queryParams = {
+        altId: locationId,
+        altType: "location",
+        limit,
+      };
+      if (startAfterId) {
+        queryParams.startAfterId = startAfterId;
+        queryParams.startAfter = startAfter;
+      }
+
+      const { data } = await client.get("/invoices/", { params: queryParams });
 
       const invoices = data.invoices || data.data || [];
       allInvoices.push(...invoices);
@@ -37,9 +40,12 @@ function createGhlClient(apiToken) {
         break;
       }
 
-      offset += invoices.length;
+      // Use the last invoice for cursor-based pagination
+      const lastInvoice = invoices[invoices.length - 1];
+      startAfterId = lastInvoice._id || lastInvoice.id;
+      startAfter = lastInvoice.createdAt || lastInvoice.created_at;
 
-      // Safety: if caller passed a limit via params, respect it as a total cap
+      // If caller passed a limit, respect it as a total cap
       if (params.limit && allInvoices.length >= params.limit) {
         break;
       }
@@ -49,7 +55,9 @@ function createGhlClient(apiToken) {
   }
 
   async function getInvoice(invoiceId) {
-    const { data } = await client.get(`/invoices/${invoiceId}`);
+    const { data } = await client.get(`/invoices/${invoiceId}`, {
+      params: { altId: invoiceId, altType: "location" },
+    });
     return data;
   }
 

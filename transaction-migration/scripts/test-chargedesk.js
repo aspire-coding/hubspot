@@ -15,9 +15,10 @@ const chargedesk = axios.create({
 });
 
 async function main() {
-  console.log("Fetching 5 charges from Chargedesk...\n");
+  const count = parseInt(process.argv[2], 10) || 50;
+  console.log(`Fetching ${count} charges from Chargedesk...\n`);
 
-  const { data } = await chargedesk.get("/charges", { params: { count: 5 } });
+  const { data } = await chargedesk.get("/charges", { params: { count } });
   const charges = data.data || data;
 
   if (!charges || charges.length === 0) {

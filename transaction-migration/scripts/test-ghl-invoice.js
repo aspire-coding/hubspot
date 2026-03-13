@@ -93,6 +93,14 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("Fatal error:", err.response?.data || err.message);
+  if (err.response) {
+    console.error("Fatal error — HTTP", err.response.status);
+    console.error("URL:", err.config?.url);
+    console.error("Params:", JSON.stringify(err.config?.params));
+    console.error("Headers:", JSON.stringify(err.config?.headers, null, 2));
+    console.error("Response:", JSON.stringify(err.response.data, null, 2));
+  } else {
+    console.error("Fatal error:", err.message);
+  }
   process.exit(1);
 });

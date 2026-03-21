@@ -109,6 +109,28 @@ Return ONLY valid JSON. No markdown fences, no preamble."""
 # ---------------------------------------------------------------------------
 # Reddit fetching
 # ---------------------------------------------------------------------------
+def resolve_share_url(url: str) -> str:
+    """Resolve a Reddit share URL (/r/.../s/...) by following redirects."""
+    headers = {
+        "User-Agent": "HubSpotInsightExtractor/1.0 (research project)"
+    }
+    try:
+        resp = requests.head(url, headers=headers, allow_redirects=True, timeout=10)
+        resolved = resp.url
+        # Strip query params from resolved URL
+        resolved = resolved.split("?")[0]
+        if "/comments/" in resolved:
+            return resolved
+        # Sometimes HEAD doesn't resolve fully — try GET
+        resp = requests.get(url, headers=headers, allow_redirects=True, timeout=10)
+        resolved = resp.url.split("?")[0]
+        if "/comments/" in resolved:
+            return resolved
+    except Exception as e:
+        print(f"    Could not resolve share URL: {e}")
+    return url  # return original if resolution fails
+
+
 def normalize_reddit_url(url: str) -> str:
     """Clean up a Reddit URL and return the .json endpoint."""
     url = url.strip().rstrip("/")
@@ -116,6 +138,11 @@ def normalize_reddit_url(url: str) -> str:
     url = url.split("?")[0]
     # Normalize domain
     url = re.sub(r"https?://(www\.|old\.|new\.)?reddit\.com", "https://www.reddit.com", url)
+    # Resolve share URLs (/s/ links) to actual post URLs
+    if "/s/" in url:
+        print("    Resolving share URL...")
+        url = resolve_share_url(url)
+        url = url.rstrip("/")
     # Remove trailing slash and add .json
     if not url.endswith(".json"):
         url += ".json"

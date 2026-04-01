@@ -1,0 +1,12 @@
+{
+  "name": "psd-to-png",
+  "version": "1.0.0",
+  "description": "Export PSD layers to individual PNG files",
+  "main": "export-layers.js",
+  "scripts": {
+    "export": "node export-layers.js"
+  },
+  "dependencies": {
+    "psd": "^3.4.0"
+  }
+}
